@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Find Your Legislators</title>
+</head>
+<body>
+  <main>
+    <h1>Find Your Legislators</h1>
+     <p>Limited to 250 lookups per day</p>
+     <p>Limited to 10 lookups per minute</p>
+    <form id="lookup-form">
+      <input id="address" placeholder="Enter your address" required />
+      <br><br>
+      <label for="level">Level:</label>
+      <select id="level" name="level" required>
+        <option value="state">State</option>
+        <option value="federal">Federal</option>
+        <option value="local">Local</option>
+        <option value="all" selected>All</option>
+      </select>
+      <br><br>
+      <button type="submit">Search</button>
+    </form>
+    <section id="results"></section>
+
+    
+
+    <br><br>
+    <button id="run-tests">Run all state tests</button>
+<div id="test-results"></div>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
