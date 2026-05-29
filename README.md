@@ -1,5 +1,13 @@
 # EmailAdvocacy
 
+## Run the code 
+
+start a webserver 
+
+`EmailAdvocacy$ python3 -m http.server 8000`
+
+connect to it at `localhost:8000`
+
 ## Testing 
 
 I have been using the Microsoft "live server preview" exetentions for testing
@@ -26,3 +34,4 @@ once you have them create a file called `env.json`:
 ```
 
 don't commit this file to github
+
