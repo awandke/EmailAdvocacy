@@ -13,7 +13,7 @@ async function civicDivisionsByAddress(address) {
 
 function parseOcdDivision(ocdDivisionId) {
     if (!ocdDivisionId.startsWith("ocd-division/")) {
-        throw new Error(`Not a valid OCD division id: ${ocdDivisionId}`);
+        throw new Error(`Not a valid OCD division id: '${ocdDivisionId}'`);
     }
 
     // Remove the leading "ocd-division/"
@@ -38,32 +38,61 @@ function parseOcdDivision(ocdDivisionId) {
     return result;
 }
 
-function filterDivisionsByLevel(divisions, level) {
-    // mapping of level to substrings we look for in OCD IDs
-    const patterns = {
-        state: [/sldl:/, /sldu:/], // state house or senate
-        federal: [/country:us$/, /cd:\d+/],            // US, congressional districts
-        local: [
-            /county:/, /place:/, /council_district:/, /school_district:/,
-            /township/ // catch things like township
-        ],
-        all: [/.*/]                                   // everything
-    };
+function filterDivisionsByLevel(all_divisions, level) {
+    if (level == "federal") {
+        return getFederalDivisions(all_divisions);
+    } else if (level == "state") {
+        return getStateDivisions(all_divisions);
+    } else if (level == "local") {
+        return getLocalDivision(all_divisions);
+    } else if (level == "all") {
+        let out = getFederalDivisions(all_divisions);
+        out.push(getStateDivisions(all_divisions));
+        out.push(getLocalDivisions(all_divisions));
+        return out;
+    } else {
+        throw new Error(`Unexpected value for 'level': ${level}`);
+    }
+}
 
-    const selectedPatterns = patterns[level];
+function getFederalDivisions(all_divisions) {
+    let patterns = [/country:us$/, /cd:\d+/];
+    console.log("Federal not supported yet");
+    return [];
+}
+
+function getStateDivisions(all_divisions) {
+    const patterns = [/sldl:/, /sldu:/];
     const out = {};
 
-    for (const [ocdId, info] of Object.entries(divisions)) {
-        if (selectedPatterns.some(re => re.test(ocdId))) {
-            out[ocdId] = info;
-            if ("alsoKnownAs" in info) {
-                out[info["alsoKnownAs"]] = info
-            }  
+    for (const [id, info] of Object.entries(all_divisions)) {
+        if (patterns.some(re => re.test(id))) {
+            const state = getStateCodeFromOcdId(id);
+            if (state == "id") {
+                // Each idaho house district has 'a' and 'b' which is not output by google api
+                let house_a = info["alsoKnownAs"] + 'a';
+                let house_b = info["alsoKnownAs"] + 'b';
+                out[house_a] = info;
+                out[house_b] = info;
+            } else {
+                // if there is a shared district, add the lower district
+                if ("alsoKnownAs" in info) {
+                    out[info["alsoKnownAs"]] = info
+                }
+            }
+            // always push the Ocd Id as is
+            out[id] = info;
         }
     }
-
     return out;
 }
+
+function getLocalDivision(all_divisions) {
+    let patterns = [/county:/, /place:/, /council_district:/, /school_district:/, /township/];
+    console.log("Local not supported yet");
+    return [];
+}
+
 
 async function legislatorsFromOCD(ocdDivisionId) {
     const div = parseOcdDivision(ocdDivisionId)
@@ -80,7 +109,7 @@ async function legislatorsFromOCD(ocdDivisionId) {
         const response = await fetch(url, { headers: { "X-API-KEY": key } });
         if (!response.ok) {
           console.log(`HTTP ${response.status} for ${url}`);
-          return []; 
+          return [];
         }
         // get results
         const raw_out = await response.json()
@@ -88,7 +117,7 @@ async function legislatorsFromOCD(ocdDivisionId) {
             console.log(`Error: no results for ocd: ${ocdDivisionId} url: ${url}`)
             return [];
         }
-        // build output 
+        // build output
         let reps = []
         for (const rep of raw_out["results"]) {
             const info = `${rep["party"]} ${rep["current_role"]["title"]} ${rep["name"]}: ${rep["email"]}`
@@ -102,18 +131,23 @@ async function legislatorsFromOCD(ocdDivisionId) {
 }
 
 async function getOutput(address, level, display) {
-    const all_divisions = await civicDivisionsByAddress(address);
-    const divisions = await filterDivisionsByLevel(all_divisions, level);
-    for (const ocdId of Object.keys(divisions)) {
-        const divName = divisions[ocdId].name;
-        let reps = await legislatorsFromOCD(ocdId);
-        for (const rep_info of reps) {
-            // Make a line of text
-            const line = document.createElement("div");
-            line.textContent = `${divName}: ${rep_info}`;
-            display.appendChild(line);
-        }
+    const response = await fetch("/api/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address })
+    });
+    const data = await response.json();
+    if (!response.ok) {
+        throw new Error(data.error || `Lookup failed with HTTP ${response.status}`);
     }
+
+    for (const official of data.results) {
+        const line = document.createElement("div");
+        const email = official.email ? `: ${official.email}` : "";
+        line.textContent = `${official.divisionName}: ${official.party} ${official.title} ${official.name}${email}`;
+        display.appendChild(line);
+    }
+    return display.querySelectorAll("div").length;
 }
 
 document.getElementById("lookup-form").addEventListener("submit", async (e) => {
@@ -121,23 +155,28 @@ document.getElementById("lookup-form").addEventListener("submit", async (e) => {
     const display = document.getElementById("results");
     const addr = document.getElementById("address").value.trim();
     const level = document.getElementById("level").value.trim();
+    const button = e.currentTarget.querySelector("button");
+    const status = document.getElementById("status");
     display.textContent = "";
+    status.className = "";
+    status.textContent = "Looking up your address…";
+    button.disabled = true;
     try {
-        getOutput(addr, level, display);
+        const count = await getOutput(addr, level, display);
+        status.textContent = count ? "" : "No state legislators were found for that address.";
     }
     catch (err) {
-        results.textContent = String(err);
+        console.error(err);
+        status.className = "error";
+        status.textContent = "We couldn't complete the lookup. Check the address and try again.";
+    } finally {
+        button.disabled = false;
     }
 });
 
 /// Helper Functions ////////////////////////////////////////////////
 
 // TODO support puerto rico and dc
-async function getStates() {
-    const res = await fetch("states.json");
-    if (!res.ok) throw new Error(`Failed to load states.json: ${res.status}`);
-    return await res.json();
-}
 
 async function getStateNameFromCode(code) {
     const res = await fetch("state_codes.json");
@@ -153,10 +192,16 @@ async function getKeyByName(key_name) {
     return api_keys[key_name];
 }
 
+function getStateCodeFromOcdId(ocdid) {
+    // matches the first two letters after "state:" and a word boundary
+    // 'i' indicates case insensitive
+    const match = ocdid.match(/state:([a-z]{2})\b/i);
+    return match ? match[1].toLowerCase() : null;
+}
+
 /// Testing Code ////////////////////////////////////////////////////
 
-document.getElementById("run-tests").addEventListener("click", async (e) => {
-    e.preventDefault();
+async function test_getOutput() {
     const states = await getStates();
     const display = document.getElementById("test-results");
     skipped = 0;
@@ -170,7 +215,7 @@ document.getElementById("run-tests").addEventListener("click", async (e) => {
             continue;
         }
         await getOutput(s.address, "state", display)
-        await sleep(12000); // 10 second to avoid rate limiting
+        await sleep(13000); // 13 second to avoid rate limiting
         const divs = Array.from(display.querySelectorAll("div"));
         // check total num reps
         if (divs.length != s.total_reps) {
@@ -201,8 +246,22 @@ document.getElementById("run-tests").addEventListener("click", async (e) => {
     }
     display.textContent = "";
     display.textContent = `pass: ${passed} fail: ${failed} skip: ${skipped}`;
-});
+}
+
+function test_getStateCodeFromOcdId() {
+    console.assert(getStateCodeFromOcdId("ocd-division/country:us/state:id/cd:2") == "id");
+    console.assert(getStateCodeFromOcdId("ocd-division/country:us/state:il/sldu:41") == "il");
+    console.assert(getStateCodeFromOcdId("ocd-division/country:us/cd:5") == null);
+}
+
+/// Test Helper Functions ///////////////////////////////////////////////////
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function getStates() {
+    const res = await fetch("states.json");
+    if (!res.ok) throw new Error(`Failed to load states.json: ${res.status}`);
+    return await res.json();
 }

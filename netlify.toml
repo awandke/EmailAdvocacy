@@ -1,0 +1,9 @@
+[build]
+  publish = "."
+  functions = "netlify/functions"
+
+[[redirects]]
+  from = "/api/lookup"
+  to = "/.netlify/functions/lookup"
+  status = 200
+
